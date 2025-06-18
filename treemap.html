@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Planting Plan</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Earthy Harmony with Pastel Accents -->
+    <!-- Application Structure Plan: A dashboard-style single-page application is designed to transform the static planting plan into an engaging and intuitive tool. The structure is as follows: 1. Header & Overview Stats: Provides immediate high-level context (total trees, area, etc.). 2. Interactive Planting Grid: The core of the app, allowing visual exploration of the layout. This is more effective than a static text description. 3. Tree Inventory Section: Uses charts and lists to detail the species composition, offering a quantitative view. This section now includes interactive controls for adjusting tree counts via buttons and direct input, leading to dynamic grid re-generation, and displays the total count with a warning if it exceeds 84. 4. Key Guidelines: Reinforces the planting rules in a scannable format. This top-down structure (from summary to detail) guides the user logically through the plan, making complex information digestible and easy to navigate. -->
+    <!-- Visualization & Content Choices: 
+        - Goal: Inform (Overview) -> Method: HTML/Tailwind Stat Cards -> Interaction: None -> Justification: Quick, scannable key metrics.
+        - Goal: Organize/Explore (Layout) -> Method: Interactive HTML Grid with JS -> Interaction: Click/Hover to show details in a modal -> Justification: Provides a clear spatial understanding of the plan, which is impossible with text alone. Individual cells now have distinct pastel background colors based on species for enhanced visual distinction. The placement logic now strictly adheres to fixed Acacia rows (2,4,6,8,10,12) and handles Acacia quantity adjustments by filling remaining slots with other trees, while maintaining the "no identical species on 4 adjacent sides" rule as much as possible for all placed trees.
+        - Goal: Compare/Inform (Composition) -> Method: Chart.js Doughnut & Bar Charts -> Interaction: Tooltips -> Justification: Doughnut chart clearly shows the proportion of Acacia vs. other trees, while the list with adjusters allows fine-tuning quantities. Charts dynamically updated with user input.
+        - Goal: Inform (Rules) -> Method: Styled HTML list -> Interaction: None -> Justification: Easy-to-read summary of constraints (updated to reflect fixed Acacia rows).
+        - Library/Method: All visualizations use Chart.js (Canvas) or structured HTML/CSS, adhering to the requirements.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: #FBFBF8; /* Off-white, warm neutral */
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+        .tree-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px; /* Reduced gap for smaller cells */
+        }
+        .tree-cell {
+            aspect-ratio: 1 / 1;
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            cursor: pointer;
+            font-size: 0.55rem; /* Smaller base font for mobile */
+            line-height: 1; /* Adjust line height to fit text */
+            padding: 1px; /* Reduced padding for smaller cells */
+            text-align: center; /* Centered text */
+            overflow: hidden; /* Hide overflow if text is too long */
+            word-break: break-word; /* Break long words */
+            display: flex; /* Ensure flex for centering */
+            justify-content: center; /* Center horizontally */
+            align-items: center; /* Center vertically */
+        }
+        @media (min-width: 375px) { /* Adjust for slightly larger phones */
+            .tree-cell {
+                font-size: 0.6rem;
+                padding: 1px;
+            }
+        }
+        @media (min-width: 425px) { /* Adjust for larger phones */
+            .tree-cell {
+                font-size: 0.65rem;
+                padding: 2px;
+            }
+        }
+        @media (min-width: 640px) { /* Adjust for small tablets/landscape phones */
+            .tree-cell {
+                font-size: 0.7rem;
+                padding: 3px;
+            }
+        }
+        @media (min-width: 768px) { /* Adjust for medium tablets/desktop */
+            .tree-cell {
+                font-size: 0.8rem;
+                padding: 4px;
+            }
+        }
+        .tree-cell:hover {
+            transform: scale(1.1);
+            z-index: 10;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+        }
+        .total-count-warning {
+            color: #dc2626; /* Red color for warning */
+            font-weight: bold;
+        }
+        .count-input {
+            width: 45px; /* Adjust width for number input */
+            text-align: center;
+            border: 1px solid #d1d5db; /* gray-300 */
+            border-radius: 0.25rem;
+            -moz-appearance: textfield; /* Remove spinner for Firefox */
+        }
+        .count-input::-webkit-outer-spin-button,
+        .count-input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+</head>
+<body class="text-gray-700">
+
+    <!-- Main Container -->
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+
+        <!-- Header -->
+        <header class="text-center mb-8 md:mb-12">
+		    <p class="text-lg text-gray-600">Arialypse Project</p><br>
+            <h1 class="text-3xl md:text-5xl font-bold text-green-800 mb-2">แผนผังการปลูกต้นไม้ (ที่ดิน 1 ไร่)</h1>
+            <p class="text-lg text-gray-600">เครื่องมือแสดงภาพและข้อมูลการจัดสรรพันธุ์ไม้</p>
+        </header>
+
+        <!-- Overview Stats Section -->
+        <section id="overview" class="mb-8 md:mb-12">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 text-center">
+                <div class="bg-white p-4 rounded-xl shadow-md border border-gray-200">
+                    <h3 class="text-3xl md:text-4xl font-bold text-green-600">84</h3>
+                    <p class="text-sm md:text-base text-gray-500">ต้นไม้ทั้งหมด</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-md border border-gray-200">
+                    <h3 class="text-3xl md:text-4xl font-bold text-green-600">1,600</h3>
+                    <p class="text-sm md:text-base text-gray-500">ตร.ม. (ที่ดิน 1 ไร่)</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-md border border-gray-200">
+                    <h3 class="text-3xl md:text-4xl font-bold text-green-600">1,296</h3>
+                    <p class="text-sm md:text-base text-gray-500">ตร.ม. (พื้นที่ปลูกจริง)</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-md border border-gray-200">
+                    <h3 class="text-3xl md:text-4xl font-bold text-green-600">12 x 7</h3>
+                    <p class="text-sm md:text-base text-gray-500">แถว x ต้น</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Content: Grid and Inventory -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 md:gap-12">
+            
+            <!-- Left/Main Column: Interactive Grid -->
+            <main class="lg:col-span-2 bg-white p-4 sm:p-6 rounded-xl shadow-lg border border-gray-200">
+                <h2 class="text-2xl font-bold text-green-800 mb-4 text-center">ผังการปลูก</h2>
+                <p class="text-center text-gray-500 mb-6 text-sm">สีพื้นหลังของต้นไม้แต่ละชนิดจะแตกต่างกันไป เพื่อช่วยให้แยกแยะได้ง่ายขึ้น</p>
+
+                <!-- Planting Grid -->
+                <div id="plantingGrid" class="tree-grid relative">
+                    <!-- Tree cells will be generated by JavaScript -->
+                </div>
+                
+                <div class="flex justify-center space-x-6 mt-6 text-sm">
+                    <div class="flex items-center"><span class="w-4 h-4 rounded-full bg-blue-200 mr-2"></span><span>กลุ่มต้นไม้หลัก</span></div>
+                    <div class="flex items-center"><span class="w-4 h-4 rounded-full bg-lime-300 mr-2"></span><span>อาคาเซีย</span></div>
+                </div>
+            </main>
+
+            <!-- Right/Sidebar Column: Inventory and Charts -->
+            <aside class="lg:col-span-1 space-y-8">
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                    <h2 class="text-2xl font-bold text-green-800 mb-4 text-center">สัดส่วนพันธุ์ไม้</h2>
+                    <div class="chart-container" style="height:250px; max-height:250px;">
+                        <canvas id="compositionChart"></canvas>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                    <h2 class="text-2xl font-bold text-green-800 mb-4">คลังพันธุ์ไม้ (ปรับจำนวนได้)</h2>
+                    <p class="text-center text-gray-500 text-sm mb-4">ปรับจำนวนต้นไม้แล้วกด "จัดผังใหม่"</p>
+                    <div class="text-center mb-4">
+                        <span class="text-sm font-semibold text-gray-700">ต้นรวม: </span>
+                        <span id="totalAdjustableTreesCount" class="text-base font-bold text-green-700">0</span>
+                        <span class="text-sm font-semibold text-gray-700"> / 84 ต้น</span>
+                    </div>
+                    <ul id="speciesList" class="space-y-2 text-gray-600">
+                        <!-- Species list will be generated by JavaScript -->
+                    </ul>
+                    <button id="updateGridButton" class="mt-6 w-full bg-green-700 text-white font-bold py-2 px-4 rounded-full hover:bg-green-800 transition-colors">จัดผังใหม่</button>
+                </div>
+            </aside>
+
+        </div>
+
+        <!-- Guidelines Section -->
+        <section id="guidelines" class="mt-8 md:mt-12 bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+            <h2 class="text-2xl font-bold text-green-800 mb-4 text-center">เงื่อนไขและหลักการปลูก</h2>
+            <ul class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-center">
+                <li class="p-4 bg-green-50 rounded-lg">
+                    <div class="text-3xl mb-2">📏</div>
+                    <h4 class="font-bold">เว้นระยะขอบ</h4>
+                    <p class="text-sm">เว้นจากรั้วรอบที่ดินอย่างน้อย 2 เมตร</p>
+                </li>
+                <li class="p-4 bg-green-50 rounded-lg">
+                    <div class="text-3xl mb-2">🌳</div>
+                    <h4 class="font-bold">ระยะห่างแถว</h4>
+                    <p class="text-sm">ระยะปลูกระหว่างต้น 3 x 5 เมตร</p>
+                </li>
+                <li class="p-4 bg-green-50 rounded-lg">
+                    <div class="text-3xl mb-2">🌿</div>
+                    <h4 class="font-bold">การสลับชนิด</h4>
+                    <p class="text-sm">ต้นไม้ห้ามปลูกพันธุ์เดียวกันติดกัน 4 ด้าน (บน, ล่าง, ซ้าย, ขวา) พยายามรักษากฎนี้ให้มากที่สุด</p>
+                </li>
+                <li class="p-4 bg-green-50 rounded-lg">
+                    <div class="text-3xl mb-2">✂️</div>
+                    <h4 class="font-bold">แถวอาคาเซียเฉพาะ</h4>
+                    <p class="text-sm">ทุกแถวที่ 2, 4, 6, 8, 10, 12 จะเป็นอาคาเซีย (ถ้ามีจำนวนเพียงพอ) และจะตัดสางใน 10 ปี</p>
+                </li>
+            </ul>
+        </section>
+
+    </div>
+
+    <!-- Modal -->
+    <div id="treeModal" class="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 transition-opacity duration-300 opacity-0 pointer-events-none">
+        <div id="modalContent" class="bg-white rounded-2xl shadow-2xl p-6 w-11/12 max-w-sm text-center transform scale-95 transition-transform duration-300">
+            <h3 id="modalTreeName" class="text-2xl font-bold text-green-800 mb-2"></h3>
+            <p id="modalTreeGroup" class="text-gray-500 mb-4"></p>
+            <div id="modalTreeDetails" class="text-left bg-gray-50 p-4 rounded-lg"></div>
+            <button id="closeModal" class="mt-6 bg-green-600 text-white font-bold py-2 px-6 rounded-full hover:bg-green-700 transition-colors">ปิด</button>
+        </div>
+    </div>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+    const TOTAL_GRID_SLOTS = 12 * 7; // Total slots available in the grid (84)
+    const ACACIA_FIXED_SLOTS = 6 * 7; // Slots reserved for Acacia (42)
+
+    // Initial tree data counts
+    const initialTreeData = {
+        mainTrees: [
+            { name: 'พะยูง', count: 7, code: 'PY' },
+            { name: 'สัก', count: 7, code: 'SK' },
+            { name: 'มะฮอกกานี', count: 7, code: 'MH' },
+            { name: 'ยางนา', count: 6, code: 'YN' },
+            { name: 'สะเดา', count: 6, code: 'SD' },
+            { name: 'ไม้แดง', count: 6, code: 'MD' },
+            { name: 'มะค่า', count: 1, code: 'MK' },
+            { name: 'กันเกรา', count: 1, code: 'KK' },
+            { name: 'พะยอม', count: 1, code: 'PYo' },
+            { name: 'จำปา', count: 0, code: 'CP' },
+            { name: 'ประดู่', count: 0, code: 'PD' },
+            { name: 'มะเกลือ', count: 0, code: 'MG' },
+            { name: 'จามจุรี', count: 0, code: 'JJ' },
+            { name: 'สน', count: 0, code: 'SN' },
+            { name: 'ทองหลางน้ำ', count: 0, code: 'TLN' }
+        ],
+        acaciaTree: { name: 'อาคาเซีย', count: 42, code: 'AC' }
+    };
+
+    // Deep copy initial data for mutable state
+    let treeData = JSON.parse(JSON.stringify(initialTreeData));
+
+
+    // Map tree codes to specific pastel colors
+    const treeColorMap = {
+        'PY': '#A7C7E7', // พะยูง - Light Blue
+        'SK': '#F8C8DC', // สัก - Light Pink
+        'MH': '#C8E8C8', // มะฮอกกานี - Light Green
+        'YN': '#FCF4A3', // ยางนา - Light Yellow
+        'MD': '#FFDAB9', // ไม้แดง - Light Orange
+        'SD': '#E0BBE4', // สะเดา - Light Purple
+        'KK': '#B0E0E6', // กันเกรา - Powder Blue
+        'PYo': '#FAEBD7', // พะยอม - Antique White
+        'CP': '#FFB6C1', // จำปา - Light Pink (new)
+        'PD': '#ADD8E6', // ประดู่ - Light Blue (new)
+        'MG': '#FFE4B5', // มะเกลือ - Moccasin (new)
+        'JJ': '#E6E6FA', // จามจุรี - Lavender (new)
+        'SN': '#98FB98', // สน - Pale Green (new)
+        'TLN': '#FFD700', // ทองหลางน้ำ - Gold (new, adjusted for pastel)
+        'AC': '#A3E635', // อาคาเซีย - Light Lime Green
+        'ว่าง': '#E2E8F0', // Placeholder for empty slots
+        'MK': '#C0C9EE'  // มะค่า - Lavender Purple (Updated as requested)
+    };
+
+    // Custom sort order for species list display
+    const customSortOrder = [
+        'พะยูง', 'สัก', 'มะฮอกกานี', 'ยางนา', 'สะเดา', 'ไม้แดง', 'มะค่า',
+        'กันเกรา', 'พะยอม', 'จำปา', 'ประดู่', 'มะเกลือ', 'จามจุรี', 'สน',
+        'ทองหลางน้ำ', 'อาคาเซีย'
+    ];
+
+
+    const gridContainer = document.getElementById('plantingGrid');
+    const speciesListElement = document.getElementById('speciesList');
+    const totalAdjustableTreesCountElement = document.getElementById('totalAdjustableTreesCount');
+    const modal = document.getElementById('treeModal');
+    const modalContent = document.getElementById('modalContent');
+    const closeModal = document.getElementById('closeModal');
+    const updateGridButton = document.getElementById('updateGridButton');
+
+    let compositionChart;
+
+    // Function to shuffle an array (Fisher-Yates algorithm)
+    function shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+    }
+
+    // Function to generate the planting layout with conflict avoidance
+    function generateLayout() {
+        const numRows = 12; // Total rows in the grid
+        const numCols = 7; // Total columns in the grid
+        const layoutGrid = Array(numRows).fill(null).map(() => Array(numCols).fill(null));
+
+        // 1. Prepare tree pools based on current counts
+        let mainTreePool = []; // For Group 1 trees and excess Acacia
+        treeData.mainTrees.forEach(tree => {
+            for (let i = 0; i < tree.count; i++) {
+                mainTreePool.push(tree.code);
+            }
+        });
+        
+        let acaciaPool = []; // For Acacia trees
+        for (let i = 0; i < treeData.acaciaTree.count; i++) {
+            acaciaPool.push(treeData.acaciaTree.code);
+        }
+
+        // Shuffle both pools for randomness in selection
+        shuffleArray(mainTreePool);
+        shuffleArray(acaciaPool);
+
+        // 2. Phase 1: Place Acacia into designated rows (2, 4, 6, 8, 10, 12)
+        const acaciaDesignatedRows = [1, 3, 5, 7, 9, 11]; // 0-indexed rows: 1, 3, 5, 7, 9, 11
+        
+        for (const r of acaciaDesignatedRows) {
+            for (let c = 0; c < numCols; c++) {
+                if (acaciaPool.length > 0) {
+                    layoutGrid[r][c] = acaciaPool.pop(); // Place Acacia
+                } else {
+                    layoutGrid[r][c] = 'PLACEHOLDER_MAIN'; // Mark for main tree if no Acacia left
+                }
+            }
+        }
+
+        // Handle excess Acacia (if more than ACACIA_FIXED_SLOTS were available)
+        while (acaciaPool.length > 0) {
+            mainTreePool.push(acaciaPool.pop()); // Add excess Acacia to main tree pool
+        }
+        shuffleArray(mainTreePool); // Reshuffle main tree pool with added excess Acacia
+
+        // 3. Phase 2: Fill main rows (1, 3, 5, 7, 9, 11) and PLACEHOLDER_MAIN slots
+        for (let r = 0; r < numRows; r++) {
+            for (let c = 0; c < numCols; c++) {
+                // If this cell is a main group row (0-indexed even rows) OR it's a placeholder in an Acacia row
+                if ((r % 2 === 0) || (layoutGrid[r][c] === 'PLACEHOLDER_MAIN')) { 
+                    const forbiddenSpecies = new Set();
+
+                    // Check top neighbor
+                    if (r > 0 && layoutGrid[r - 1][c] !== null) {
+                        forbiddenSpecies.add(layoutGrid[r - 1][c]);
+                    }
+                    // Check left neighbor
+                    if (c > 0 && layoutGrid[r][c - 1] !== null) {
+                        forbiddenSpecies.add(layoutGrid[r][c - 1]);
+                    }
+                    // Check bottom neighbor (if it's an Acacia designated row and already filled)
+                    // We need to look ahead for the bottom neighbor if it's a fixed Acacia row
+                    // If current row (r) is a main row (r%2 === 0), and (r+1) is an Acacia row, we must check it.
+                    if (r < numRows - 1) {
+                        if (acaciaDesignatedRows.includes(r + 1) && layoutGrid[r + 1][c] !== 'PLACEHOLDER_MAIN' && layoutGrid[r + 1][c] !== null) {
+                            forbiddenSpecies.add(layoutGrid[r + 1][c]);
+                        }
+                    }
+                    
+                    let chosenCode = null;
+                    let eligibleCandidates = [];
+                    let conflictCandidates = [];
+
+                    // Create a temporary pool for current cell's selection
+                    let tempMainPoolForSelection = [...mainTreePool];
+                    shuffleArray(tempMainPoolForSelection); // Shuffle for each cell to add more randomness to selection
+
+                    for (const candidateCode of tempMainPoolForSelection) {
+                         if (candidateCode === null) continue; // Should not happen with fresh pool but good check
+                         if (!forbiddenSpecies.has(candidateCode)) {
+                             eligibleCandidates.push(candidateCode);
+                         } else {
+                             conflictCandidates.push(candidateCode);
+                         }
+                    }
+
+                    // Prioritize non-conflicting candidates
+                    if (eligibleCandidates.length > 0) {
+                        const chosenIndexInEligible = Math.floor(Math.random() * eligibleCandidates.length);
+                        chosenCode = eligibleCandidates[chosenIndexInEligible];
+                    } else if (conflictCandidates.length > 0) {
+                        // If no non-conflicting options, pick a conflicting one
+                        const chosenIndexInConflict = Math.floor(Math.random() * conflictCandidates.length);
+                        chosenCode = conflictCandidates[chosenIndexInConflict];
+                        // console.warn(`Conflict detected at (${r},${c}). Placed ${chosenCode} next to a forbidden species.`);
+                    } else {
+                        chosenCode = 'ว่าง'; // Should only happen if mainTreePool is truly empty and slots remain
+                        // console.error(`No main trees available for slot (${r},${c}).`);
+                    }
+
+                    layoutGrid[r][c] = chosenCode;
+                    // Remove chosen tree from the pool of available trees for subsequent placements
+                    const indexToRemove = mainTreePool.indexOf(chosenCode);
+                    if (indexToRemove > -1) {
+                        mainTreePool.splice(indexToRemove, 1);
+                    }
+                }
+            }
+        }
+
+        // Final check and fill any remaining 'null' with 'ว่าง' if pools ran out unexpectedly
+        for (let r = 0; r < numRows; r++) {
+            for (let c = 0; c < numCols; c++) {
+                if (layoutGrid[r][c] === null) {
+                    layoutGrid[r][c] = 'ว่าง';
+                }
+            }
+        }
+
+        return layoutGrid;
+    }
+
+    // Function to render the planting grid
+    function renderPlantingGrid() {
+        gridContainer.innerHTML = ''; // Clear existing grid
+        const layoutGrid = generateLayout(); // Generate new layout
+
+        for (let row = 0; row < 12; row++) { // Iterate through all 12 rows (0-indexed)
+            for (let col = 0; col < 7; col++) { // Iterate through all 7 columns (0-indexed)
+                const cell = document.createElement('div');
+                cell.classList.add('tree-cell', 'rounded-lg', 'font-bold', 'text-gray-800'); // Removed flex properties here as they are now set in CSS directly for centering
+                
+                const currentTreeCode = layoutGrid[row][col];
+                let treeName = '';
+                let treeGroup = '';
+
+                // Determine tree info and display properties
+                if (currentTreeCode === 'AC') {
+                    treeName = treeData.acaciaTree.name;
+                    treeGroup = 'อาคาเซีย';
+                    cell.style.backgroundColor = treeColorMap['AC'];
+                } else if (currentTreeCode === 'ว่าง') {
+                    treeName = 'ว่าง';
+                    treeGroup = 'ไม่มีต้นไม้';
+                    cell.style.backgroundColor = treeColorMap['ว่าง'];
+                } else {
+                    const tree = treeData.mainTrees.find(t => t.code === currentTreeCode);
+                    if (tree) {
+                        treeName = tree.name;
+                        treeGroup = 'กลุ่มต้นไม้หลัก';
+                        cell.style.backgroundColor = treeColorMap[tree.code];
+                    } else {
+                        treeName = 'ไม่ทราบชนิด'; // Fallback for unexpected codes
+                        treeGroup = 'ไม่ทราบกลุ่ม';
+                        cell.style.backgroundColor = treeColorMap['ว่าง']; // Use empty slot color
+                    }
+                }
+                
+                cell.textContent = treeName;
+                cell.dataset.treeName = treeName;
+                cell.dataset.treeGroup = treeGroup;
+                cell.dataset.position = `แถวที่ ${row + 1}, ต้นที่ ${col + 1}`; // 1-indexed for display
+                cell.dataset.note = (currentTreeCode === 'AC') ? 'จัดวางในแถวอาคาเซียเฉพาะ หรือสุ่มวางหากมีจำนวนเกิน 42 ต้น' : 'จัดวางตามการสลับชนิดพันธุ์';
+
+                cell.addEventListener('click', () => showModal(cell.dataset));
+                gridContainer.appendChild(cell);
+            }
+        }
+    }
+
+    // Function to render the species list (with +/- buttons and input)
+    function renderSpeciesList() {
+        speciesListElement.innerHTML = ''; // Clear existing list
+
+        // Combine main trees and acacia for rendering in the list
+        const allTreesForList = [
+            ...treeData.mainTrees,
+            treeData.acaciaTree
+        ].sort((a, b) => {
+            const indexA = customSortOrder.indexOf(a.name);
+            const indexB = customSortOrder.indexOf(b.name);
+            return indexA - indexB;
+        }); // Sort by custom order
+
+        allTreesForList.forEach(tree => {
+            const li = document.createElement('li');
+            li.className = 'flex justify-between items-center border-b pb-1';
+            li.innerHTML = `
+                <span>${tree.name}</span>
+                <div class="flex items-center space-x-2">
+                    <button class="adjust-count-btn bg-gray-200 text-gray-700 px-2 py-1 rounded-md hover:bg-gray-300 transition-colors" data-code="${tree.code}" data-action="decrease">-</button>
+                    <input type="number" class="count-input font-bold text-green-700" id="count-${tree.code}" value="${tree.count}" min="0" data-code="${tree.code}">
+                    <button class="adjust-count-btn bg-gray-200 text-gray-700 px-2 py-1 rounded-md hover:bg-gray-300 transition-colors" data-code="${tree.code}" data-action="increase">+</button>
+                </div>
+            `;
+            speciesListElement.appendChild(li);
+        });
+
+        // Add event listeners to the new buttons
+        document.querySelectorAll('.adjust-count-btn').forEach(button => {
+            button.addEventListener('click', (event) => {
+                const code = event.target.dataset.code;
+                const action = event.target.dataset.action;
+                
+                let treeToAdjust;
+                if (code === treeData.acaciaTree.code) {
+                    treeToAdjust = treeData.acaciaTree;
+                } else {
+                    treeToAdjust = treeData.mainTrees.find(t => t.code === code);
+                }
+
+                if (treeToAdjust) {
+                    let newCount = treeToAdjust.count;
+                    const currentTotal = treeData.mainTrees.reduce((sum, t) => sum + t.count, 0) + treeData.acaciaTree.count;
+
+                    if (action === 'increase') {
+                        if (currentTotal < TOTAL_GRID_SLOTS) {
+                            newCount++;
+                        } else {
+                            console.warn('Cannot increase, total grid slots already full.');
+                            return;
+                        }
+                    } else if (action === 'decrease' && newCount > 0) {
+                        newCount--;
+                    }
+                    treeToAdjust.count = newCount;
+                    document.getElementById(`count-${code}`).value = treeToAdjust.count; // Update input field
+                    updateTotalAdjustableTreesCountDisplay();
+                }
+            });
+        });
+
+        // Add event listeners for direct input changes
+        document.querySelectorAll('.count-input').forEach(input => {
+            input.addEventListener('change', (event) => { // Use 'change' for final value
+                const code = event.target.dataset.code;
+                let newValue = parseInt(event.target.value, 10);
+                
+                if (isNaN(newValue) || newValue < 0) {
+                    newValue = 0; // Default to 0 if invalid input
+                    event.target.value = 0;
+                }
+
+                let treeToAdjust;
+                if (code === treeData.acaciaTree.code) {
+                    treeToAdjust = treeData.acaciaTree;
+                } else {
+                    treeToAdjust = treeData.mainTrees.find(t => t.code === code);
+                }
+
+                if (treeToAdjust) {
+                    const oldTreeCount = treeToAdjust.count;
+                    const currentTotalExcludingThisTree = (treeData.mainTrees.reduce((sum, t) => sum + t.count, 0) + treeData.acaciaTree.count) - oldTreeCount;
+                    
+                    let adjustedNewValue = newValue;
+                    if (currentTotalExcludingThisTree + newValue > TOTAL_GRID_SLOTS) {
+                        adjustedNewValue = TOTAL_GRID_SLOTS - currentTotalExcludingThisTree;
+                        if (adjustedNewValue < 0) adjustedNewValue = 0; // Ensure non-negative
+                        console.warn(`Adjusted ${treeToAdjust.name} count to ${adjustedNewValue} to fit total slots.`);
+                    }
+                    treeToAdjust.count = adjustedNewValue;
+                    event.target.value = treeToAdjust.count; // Update input field with possibly adjusted value
+                    updateTotalAdjustableTreesCountDisplay();
+                }
+            });
+        });
+    }
+
+    // Function to update the doughnut chart
+    function updateCompositionChart() {
+        if (compositionChart) {
+            const nonAcaciaCount = treeData.mainTrees.reduce((sum, tree) => sum + tree.count, 0);
+            const acaciaCount = treeData.acaciaTree.count;
+
+            compositionChart.data.datasets[0].data = [nonAcaciaCount, acaciaCount];
+            compositionChart.update();
+        } else {
+            const ctx = document.getElementById('compositionChart').getContext('2d');
+            const nonAcaciaCount = treeData.mainTrees.reduce((sum, tree) => sum + tree.count, 0);
+            const acaciaCount = treeData.acaciaTree.count;
+
+            compositionChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['ต้นไม้หลัก (ไม่ใช่อาคาเซีย)', 'ต้นอาคาเซีย'],
+                    datasets: [{
+                        data: [nonAcaciaCount, acaciaCount],
+                        backgroundColor: ['#6EE7B7', '#A3E635'],
+                        borderColor: ['#34D399', '#84CC16'],
+                        borderWidth: 2,
+                        hoverOffset: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                font: { family: "'Sarabun', sans-serif", size: 14 }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.label}: ${context.raw} ต้น`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    // Function to update the total count display for all adjustable trees
+    function updateTotalAdjustableTreesCountDisplay() {
+        const currentTotal = treeData.mainTrees.reduce((sum, tree) => sum + tree.count, 0) + treeData.acaciaTree.count;
+        totalAdjustableTreesCountElement.textContent = currentTotal;
+        if (currentTotal !== TOTAL_GRID_SLOTS) {
+            totalAdjustableTreesCountElement.classList.add('total-count-warning');
+        } else {
+            totalAdjustableTreesCountElement.classList.remove('total-count-warning');
+        }
+    }
+
+    // Initial rendering
+    renderSpeciesList();
+    renderPlantingGrid();
+    updateCompositionChart();
+    updateTotalAdjustableTreesCountDisplay(); // Initialize total count display
+
+    // Event listener for the "Update Grid" button
+    updateGridButton.addEventListener('click', () => {
+        renderPlantingGrid();
+        updateCompositionChart();
+        updateTotalAdjustableTreesCountDisplay(); // Ensure total count is updated on grid refresh
+    });
+
+    // Modal functions
+    function showModal(data) {
+        document.getElementById('modalTreeName').textContent = data.treeName;
+        document.getElementById('modalTreeGroup').textContent = data.treeGroup;
+        document.getElementById('modalTreeDetails').innerHTML = `
+            <p><strong>ตำแหน่ง:</strong> ${data.position}</p>
+            <p><strong>หมายเหตุ:</strong> ${data.note}</p>
+        `;
+        modal.classList.remove('opacity-0', 'pointer-events-none');
+        modalContent.classList.remove('scale-95');
+    }
+
+    function hideModal() {
+        modal.classList.add('opacity-0', 'pointer-events-none');
+        modalContent.classList.add('scale-95');
+    }
+
+    closeModal.addEventListener('click', hideModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            hideModal();
+        }
+    });
+
+});
+</script>
+</body>
+</html>
